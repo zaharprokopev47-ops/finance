@@ -9,54 +9,27 @@ from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from datetime import datetime, timedelta
 
-# Настройка логирования - ПИШЕМ ВСЁ в stderr, чтобы Render показывал
+# Настройка логирования
 logging.basicConfig(
-    level=logging.DEBUG,  # DEBUG уровень для максимальной информации
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stderr)  # Явно указываем stderr
+        logging.StreamHandler(sys.stderr)
     ]
 )
 logger = logging.getLogger(__name__)
 
-# ✅ Читаем токен из переменных окружения
+# ✅ Читаем токен из переменных окружения (ТОЛЬКО ОДИН РАЗ!)
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 print(f"🔑 Токен загружен: {'да' if BOT_TOKEN else 'НЕТ'}", file=sys.stderr)
 if not BOT_TOKEN:
     print("❌ КРИТИЧЕСКАЯ ОШИБКА: BOT_TOKEN не задан!", file=sys.stderr)
     sys.exit(1)
 
-# ... остальные функции ...
-
-async def main():
-    print("🚀 Запускаем main() функцию...", file=sys.stderr)
-    
-    # Принудительно удаляем вебхук
-    print("🔄 Удаляем вебхук...", file=sys.stderr)
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("✅ Вебхук удален", file=sys.stderr)
-    
-    print("🤖 Умный финансовый бот запускается...", file=sys.stderr)
-    print("📱 Начинаем polling...", file=sys.stderr)
-    
-    # Запускаем polling
-    await dp.start_polling(bot)
-    print("⚠️ Это сообщение не должно появиться (polling завершен)", file=sys.stderr)
-
-if __name__ == "__main__":
-    print("🐍 Скрипт запущен", file=sys.stderr)
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        print(f"❌ Глобальная ошибка: {e}", file=sys.stderr)
-        sys.exit(1)
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ✅ ЗАМЕНИТЕ НА ВАШ ТОКЕН!
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
+# ✅ СОЗДАЕМ БОТА И ДИСПЕТЧЕРА ЗДЕСЬ (ВАЖНО!)
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+print("✅ Бот и диспетчер созданы", file=sys.stderr)
 
 # Категории операций
 CATEGORIES = {
@@ -72,7 +45,7 @@ CATEGORIES = {
 }
 
 # Создаем клавиатуру с кнопками
-def get__keyboard():
+def get_keyboard():  # исправлено имя (было get__keyboard)
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="📅 Сегодня")],
@@ -156,12 +129,10 @@ def set_budget(user_id, category, amount):
     conn = sqlite3.connect('finance.db')
     cursor = conn.cursor()
     
-    # Удаляем старый бюджет для этой категории
     cursor.execute('''
         DELETE FROM budgets WHERE user_id = ? AND category = ?
     ''', (user_id, category))
     
-    # Добавляем новый бюджет
     cursor.execute('''
         INSERT INTO budgets (user_id, category, amount)
         VALUES (?, ?, ?)
@@ -183,14 +154,12 @@ def get_budgets(user_id):
     return budgets
 
 def get_budget_progress(user_id, days=30):
-    """Прогресс по бюджетам за период"""
     try:
         conn = sqlite3.connect('finance.db')
         cursor = conn.cursor()
         
         start_date = datetime.now() - timedelta(days=days)
         
-        # Получаем расходы по категориям
         cursor.execute('''
             SELECT category, SUM(amount) FROM transactions 
             WHERE user_id = ? AND type = 'expense' AND created_at >= ?
@@ -198,26 +167,22 @@ def get_budget_progress(user_id, days=30):
         ''', (user_id, start_date))
         
         expenses = dict(cursor.fetchall())
-        
-        # Получаем бюджеты
         budgets = get_budgets(user_id)
-        
         conn.close()
         
-        # Считаем прогресс
         progress = {}
         for category, budget_amount in budgets.items():
             spent = expenses.get(category, 0)
             progress[category] = {
                 'budget': budget_amount,
                 'spent': spent,
-                'reing': budget_amount - spent,
+                'remaining': budget_amount - spent,
                 'percentage': (spent / budget_amount * 100) if budget_amount > 0 else 0
             }
         
         return progress
-    except sqlite3.OperationalError as e:
-        logger.error(f"Ошибка базы данных: {e}")
+    except Exception as e:
+        logger.error(f"Ошибка: {e}")
         return {}
 
 def add_goal(user_id, name, target_amount, deadline=None):
@@ -287,7 +252,6 @@ def get_detailed_stats(user_id, days=30):
         
         start_date = datetime.now() - timedelta(days=days)
         
-        # Расходы по категориям
         cursor.execute('''
             SELECT category, SUM(amount) FROM transactions 
             WHERE user_id = ? AND type = 'expense' AND created_at >= ?
@@ -296,7 +260,6 @@ def get_detailed_stats(user_id, days=30):
         ''', (user_id, start_date))
         expenses_by_category = cursor.fetchall()
         
-        # Доходы по категориям
         cursor.execute('''
             SELECT category, SUM(amount) FROM transactions 
             WHERE user_id = ? AND type = 'income' AND created_at >= ?
@@ -311,12 +274,11 @@ def get_detailed_stats(user_id, days=30):
             'expenses_by_category': expenses_by_category,
             'incomes_by_category': incomes_by_category
         }
-    except sqlite3.OperationalError as e:
-        logger.error(f"Ошибка базы данных: {e}")
+    except Exception as e:
+        logger.error(f"Ошибка: {e}")
         return {'expenses_by_category': [], 'incomes_by_category': []}
 
 def get_today_stats(user_id):
-    """Статистика за сегодня"""
     conn = sqlite3.connect('finance.db')
     cursor = conn.cursor()
     
@@ -336,12 +298,10 @@ def get_today_stats(user_id):
         'expense': results.get('expense', 0)
     }
 
-# Создаем бота и диспетчер
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-# Инициализируем базу при запуске
+# Инициализируем базу
 init_db()
+
+# ==================== ОБРАБОТЧИКИ КОМАНД ====================
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -352,7 +312,7 @@ async def cmd_start(message: types.Message):
         "• 💰 Бюджеты по категориям\n"
         "• 🎯 Цели и накопления\n\n"
         "📱 Используйте кнопки для быстрого доступа!",
-        reply_markup=get__keyboard()
+        reply_markup=get_keyboard()
     )
 
 @dp.message(Command("help"))
@@ -371,7 +331,6 @@ async def cmd_help(message: types.Message):
 
 📊 **Категории:**
 • Автоматически определяются из описания
-• Доступные: еда, транспорт, развлечения, здоровье, коммуналка, одежда, образование, подарки
 
 💡 Примеры:
 +50000 зарплата
@@ -379,14 +338,12 @@ async def cmd_help(message: types.Message):
 /budget транспорт 5000
 /goal отпуск 50000
 """
-    await message.answer(help_text, reply_markup=get__keyboard())
+    await message.answer(help_text, reply_markup=get_keyboard())
 
 @dp.message(Command("keyboard"))
 async def cmd_keyboard(message: types.Message):
-    """Показать клавиатуру"""
-    await message.answer("📱 Клавиатура активирована!", reply_markup=get__keyboard())
+    await message.answer("📱 Клавиатура активирована!", reply_markup=get_keyboard())
 
-# Обработчики кнопок - ИСПРАВЛЕННЫЕ
 @dp.message(F.text == "📊 Статистика")
 async def handle_stats_button(message: Message):
     user_id = message.from_user.id
@@ -402,7 +359,7 @@ async def handle_stats_button(message: Message):
         for category, amount in detailed_stats['expenses_by_category'][:5]:
             response += f"• {category}: {amount:,.0f} руб\n"
     
-    await message.answer(response, reply_markup=get__keyboard())
+    await message.answer(response, reply_markup=get_keyboard())
 
 @dp.message(F.text == "📅 Сегодня")
 async def handle_today_button(message: Message):
@@ -418,7 +375,7 @@ async def handle_today_button(message: Message):
         f"💰 Баланс за день: {balance:,.2f} руб"
     )
     
-    await message.answer(response, reply_markup=get__keyboard())
+    await message.answer(response, reply_markup=get_keyboard())
 
 @dp.message(F.text == "📈 Месяц")
 async def handle_month_button(message: Message):
@@ -436,7 +393,7 @@ async def handle_month_button(message: Message):
         f"📉 Средний расход в день: {stats['expense']/30:,.0f} руб"
     )
     
-    await message.answer(response, reply_markup=get__keyboard())
+    await message.answer(response, reply_markup=get_keyboard())
 
 @dp.message(F.text == "📋 Детали")
 async def handle_details_button(message: Message):
@@ -459,7 +416,7 @@ async def handle_details_button(message: Message):
     if not detailed_stats['incomes_by_category'] and not detailed_stats['expenses_by_category']:
         response += "❌ Нет данных за последние 30 дней"
     
-    await message.answer(response, reply_markup=get__keyboard())
+    await message.answer(response, reply_markup=get_keyboard())
 
 @dp.message(F.text == "💰 Бюджет")
 async def handle_budget_button(message: Message):
@@ -474,9 +431,9 @@ async def handle_budget_button(message: Message):
             status = "✅" if data['percentage'] <= 80 else "⚠️" if data['percentage'] <= 100 else "❌"
             response += f"{status} {category}:\n"
             response += f"   📊 {data['spent']:,.0f} / {data['budget']:,.0f} руб ({data['percentage']:.1f}%)\n"
-            response += f"   💰 Осталось: {data['reing']:,.0f} руб\n\n"
+            response += f"   💰 Осталось: {data['remaining']:,.0f} руб\n\n"
     
-    await message.answer(response, reply_markup=get__keyboard())
+    await message.answer(response, reply_markup=get_keyboard())
 
 @dp.message(F.text == "🎯 Цели")
 async def handle_goals_button(message: Message):
@@ -496,7 +453,7 @@ async def handle_goals_button(message: Message):
                 response += f"   📅 До: {deadline}\n"
             response += "\n"
     
-    await message.answer(response, reply_markup=get__keyboard())
+    await message.answer(response, reply_markup=get_keyboard())
 
 @dp.message(F.text == "ℹ️ Помощь")
 async def handle_help_button(message: Message):
@@ -509,7 +466,6 @@ async def handle_hide_button(message: Message):
         reply_markup=ReplyKeyboardRemove()
     )
 
-# Команды бюджетирования
 @dp.message(Command("budget"))
 async def cmd_budget(message: Message):
     user_id = message.from_user.id
@@ -530,13 +486,12 @@ async def cmd_budget(message: Message):
         return
     
     set_budget(user_id, category, amount)
-    await message.answer(f"✅ Бюджет установлен:\n{category}: {amount:,.0f} руб/месяц", reply_markup=get__keyboard())
+    await message.answer(f"✅ Бюджет установлен:\n{category}: {amount:,.0f} руб/месяц", reply_markup=get_keyboard())
 
 @dp.message(Command("budgets"))
 async def cmd_budgets(message: Message):
     await handle_budget_button(message)
 
-# Команды целей
 @dp.message(Command("goal"))
 async def cmd_goal(message: Message):
     user_id = message.from_user.id
@@ -547,16 +502,14 @@ async def cmd_goal(message: Message):
         return
     
     if args[0] == 'добавить' and len(args) >= 3:
-        # Добавление к существующей цели
         goal_name = args[1]
         try:
             amount = float(args[2])
             update_goal_progress(user_id, goal_name, amount)
-            await message.answer(f"✅ Добавлено {amount:,.0f} руб к цели '{goal_name}'", reply_markup=get__keyboard())
+            await message.answer(f"✅ Добавлено {amount:,.0f} руб к цели '{goal_name}'", reply_markup=get_keyboard())
         except ValueError:
             await message.answer("❌ Неверная сумма")
     elif len(args) >= 2:
-        # Создание новой цели
         goal_name = ' '.join(args[:-1])
         try:
             target_amount = float(args[-1])
@@ -565,7 +518,7 @@ async def cmd_goal(message: Message):
                 return
             
             add_goal(user_id, goal_name, target_amount)
-            await message.answer(f"✅ Цель создана:\n{goal_name}: {target_amount:,.0f} руб", reply_markup=get__keyboard())
+            await message.answer(f"✅ Цель создана:\n{goal_name}: {target_amount:,.0f} руб", reply_markup=get_keyboard())
         except ValueError:
             await message.answer("❌ Неверная сумма")
     else:
@@ -575,7 +528,6 @@ async def cmd_goal(message: Message):
 async def cmd_goals(message: Message):
     await handle_goals_button(message)
 
-# Команды статистики (для совместимости)
 @dp.message(Command("today"))
 async def cmd_today(message: types.Message):
     await handle_today_button(message)
@@ -588,20 +540,17 @@ async def cmd_month(message: types.Message):
 async def cmd_stats(message: types.Message):
     await handle_stats_button(message)
 
-# Обработка транзакций с категориями
 @dp.message()
 async def handle_all_messages(message: Message):
     text = message.text.strip()
     user_id = message.from_user.id
     
-    # Парсим сообщения вида "+50000 зарплата" или "-500 еда"
     match = re.match(r'^([+-]?\d+)\s+(.+)$', text)
     
     if match:
         amount_str = match.group(1)
         description = match.group(2).strip()
         
-        # Определяем тип операции по знаку
         if amount_str.startswith('+'):
             transaction_type = 'income'
             amount = float(amount_str[1:])
@@ -615,14 +564,12 @@ async def handle_all_messages(message: Message):
             amount = float(amount_str)
             response = f"📤 Расход: {amount} руб\n📝 {description}\n💡 Совет: используйте + для доходов!"
         
-        # Определяем категорию
         category = detect_category(description)
         response += f"\n🏷 Категория: {category}"
         
         add_transaction(user_id, amount, description, transaction_type, category)
         response += "\n✅ Успешно добавлено!"
         
-        # Проверяем бюджет для расходов
         if transaction_type == 'expense':
             budgets = get_budgets(user_id)
             if category in budgets:
@@ -632,17 +579,27 @@ async def handle_all_messages(message: Message):
                     if budget_data['percentage'] > 80:
                         response += f"\n⚠️ Внимание: по категории '{category}' израсходовано {budget_data['percentage']:.1f}% бюджета!"
         
-        await message.answer(response, reply_markup=get__keyboard())
+        await message.answer(response, reply_markup=get_keyboard())
     else:
         await message.answer(
             "❌ Неверный формат. Используйте:\n"
             "• +50000 зарплата - ДОХОД\n"
             "• -500 еда - РАСХОД\n\n"
             "📱 Или используйте кнопки ниже!",
-            reply_markup=get__keyboard()
+            reply_markup=get_keyboard()
         )
 
+# ✅ ЕДИНСТВЕННАЯ функция main (в конце файла)
+async def main():
+    print("🚀 Запускаем main() функцию...", file=sys.stderr)
+    print("🔄 Удаляем вебхук...", file=sys.stderr)
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("✅ Вебхук удален", file=sys.stderr)
+    print("🤖 Умный финансовый бот запускается...", file=sys.stderr)
+    print("📱 Начинаем polling...", file=sys.stderr)
+    await dp.start_polling(bot)
 
+# ✅ Запуск (в самом конце)
 if __name__ == "__main__":
     print("🐍 Скрипт запущен", file=sys.stderr)
     try:
