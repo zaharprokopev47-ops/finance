@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sqlite3
 import re
+import os 
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -12,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ✅ ЗАМЕНИТЕ НА ВАШ ТОКЕН!
-BOT_TOKEN = "8435391945:AAFFuc8m7kL6k1cQwxCqPv5mRz5CcZlRjOQ"
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
 
 # Категории операций
 CATEGORIES = {
@@ -607,4 +608,5 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+
     asyncio.run(main())
